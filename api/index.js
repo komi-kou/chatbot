@@ -1,4 +1,18 @@
-const { callGeminiAPI } = require('./gemini-proxy');
+const { callGeminiAPI } = require('../gemini-proxy'); // パスを修正
+
+// ヘルパー関数: リクエストボディを取得
+function getRequestBody(req) {
+  return new Promise((resolve, reject) => {
+    let body = '';
+    req.on('data', chunk => {
+      body += chunk.toString();
+    });
+    req.on('end', () => {
+      resolve(body);
+    });
+    req.on('error', reject);
+  });
+}
 
 module.exports = async (req, res) => {
   // CORS headers
@@ -27,71 +41,41 @@ module.exports = async (req, res) => {
           'X-ChatWorkToken': token
         }
       });
-      
-      const data = await response.text();
-      
-      if (response.ok) {
-        res.status(200).json(JSON.parse(data));
-      } else {
-        res.status(response.status).json({ error: data });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Chatwork API error: ${response.status} ${response.statusText} - ${errorText}`);
       }
+
+      const data = await response.json();
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(data));
+
     } catch (error) {
-      res.status(400).json({ error: 'Invalid JSON' });
+      console.error('Chatwork Proxy Error:', error);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Chatwork API proxy failed', details: error.message }));
     }
-    
   } else if (pathname === '/api/ai-proxy' && req.method === 'POST') {
     try {
       const body = await getRequestBody(req);
       const { apiKey, systemPrompt, userMessage, aiProvider } = JSON.parse(body);
-      
-      console.log('AI Provider:', aiProvider);
-      console.log('API Key length:', apiKey ? apiKey.length : 'undefined');
-      
-      if (aiProvider === 'gemini' || !aiProvider) {
-        // Google Gemini (無料・高品質)
-        try {
-          const result = await callGeminiAPI(apiKey, systemPrompt, userMessage);
-          res.status(200).json(result);
-        } catch (error) {
-          res.status(500).json({ error: error.message });
-        }
+
+      if (aiProvider === 'gemini') {
+        const geminiResponse = await callGeminiAPI(apiKey, systemPrompt, userMessage);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(geminiResponse));
       } else {
-        res.status(400).json({ error: 'Unsupported AI provider' });
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Unsupported AI provider' }));
       }
-      
     } catch (error) {
-      res.status(400).json({ error: 'Invalid JSON: ' + error.message });
+      console.error('AI Proxy Error:', error);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'AI API proxy failed', details: error.message }));
     }
-    
-  } else if (pathname === '/') {
-    // Serve the HTML file
-    const fs = require('fs');
-    const path = require('path');
-    
-    try {
-      const htmlPath = path.join(__dirname, 'index-free.html');
-      const htmlContent = fs.readFileSync(htmlPath, 'utf8');
-      
-      res.setHeader('Content-Type', 'text/html');
-      res.status(200).send(htmlContent);
-    } catch (error) {
-      res.status(404).json({ error: 'HTML file not found' });
-    }
-    
   } else {
-    res.status(404).json({ error: 'Not Found' });
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Not Found' }));
   }
 };
-
-function getRequestBody(req) {
-  return new Promise((resolve, reject) => {
-    let body = '';
-    req.on('data', chunk => {
-      body += chunk.toString();
-    });
-    req.on('end', () => {
-      resolve(body);
-    });
-    req.on('error', reject);
-  });
-}
