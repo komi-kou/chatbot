@@ -17,7 +17,7 @@ async function callGeminiAPI(apiKey, systemPrompt, userMessage) {
       ],
       generationConfig: {
         temperature: 0.7,
-        maxOutputTokens: 2048,  // 増やして文章が途切れないようにする
+        maxOutputTokens: 8192,  // Gemini 2.5 Proの最大出力トークンに設定
       }
     });
 
